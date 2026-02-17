@@ -1,15 +1,22 @@
 from functools import partial
 
-from hydrogram import Client, filters
-from hydrogram.enums import ChatMemberStatus, ChatType
-from hydrogram.helpers import ikb
-from hydrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram import Client, filters
+from pyrogram.enums import ChatMemberStatus, ChatType
+from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import games
 from unu.card import cards
 from unu.db import Chat, User
 from unu.locales import get_locale_string, langdict, use_chat_lang, use_user_lang
 from unu.utils import filter_sudoers
+
+
+def ikb(rows):
+    """Build InlineKeyboardMarkup from list of rows of (text, callback_data) tuples."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(text, callback_data=data) for text, data in row]
+        for row in rows
+    ])
 
 
 @Client.on_callback_query(filters.regex("^settings$") & filters.private)

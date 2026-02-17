@@ -1,10 +1,12 @@
+﻿import asyncio
 from asyncio import sleep
 from json import dump
 from pathlib import Path
 
-from hydrogram import Client, filters
-from hydrogram.errors import ListenerTimeout, MediaEmpty
-from hydrogram.types import (
+from pyrogram import Client, filters
+from pyrogram.errors import MediaEmpty
+from pyrogram.handlers import MessageHandler
+from pyrogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -18,6 +20,28 @@ from unu.card import cards
 from unu.db import User
 from unu.locales import use_user_lang
 from unu.utils import filter_sudoers
+
+
+async def wait_for_message(client: Client, chat_id: int, filter_func=None, timeout: int = 60):
+    """Wait for a message in a specific chat. Replaces hydrogram's chat.listen()."""
+    result = {"message": None}
+    event = asyncio.Event()
+
+    async def _handler(_client, _message):
+        if _message.chat.id == chat_id:
+            result["message"] = _message
+            event.set()
+
+    flt = filters.chat(chat_id)
+    if filter_func:
+        flt = flt & filter_func
+    handler = client.add_handler(MessageHandler(_handler, flt), group=98)
+    try:
+        await asyncio.wait_for(event.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        pass
+    client.remove_handler(*handler)
+    return result["message"]
 
 
 @Client.on_message(filters.command("sudos") & filters.private & filter_sudoers)
@@ -48,7 +72,7 @@ async def settings_sudos(c: Client, cq: CallbackQuery, t):
     usrs += await c.get_users([usr.id for usr in db_usrs])
     text = t("sudoers")
     for usr in usrs:
-        text += f"👤 {usr.mention}\n"
+        text += f"ðŸ‘¤ {usr.mention}\n"
 
     keyb = InlineKeyboardMarkup([
         [
@@ -65,13 +89,8 @@ async def settings_sudos(c: Client, cq: CallbackQuery, t):
 @use_user_lang()
 async def settings_sudos_add(c: Client, cq: CallbackQuery, t):
     await cq.edit_message_text(t("send_user_id"))
-    cmessage = None
-    # Wait for the user to send a message with the new emoji
-    try:
-        while cmessage is None:
-            cmessage = await cq.message.chat.listen(filters.text)
-            print(cmessage)
-    except ListenerTimeout:
+    cmessage = await wait_for_message(c, cq.message.chat.id, filters.text, timeout=60)
+    if cmessage is None:
         return
 
     text = cmessage.text
@@ -158,13 +177,8 @@ async def settings_sudo_themc(c: Client, cq: CallbackQuery, t):
 @use_user_lang()
 async def settings_themes_new(c: Client, cq: CallbackQuery, t):
     await cq.edit_message_text(t("send_theme_name"))
-    cmessage = None
-    # Wait for the user to send a message with the new emoji
-    try:
-        while cmessage is None:
-            cmessage = await cq.message.chat.listen(filters.text)
-            print(cmessage)
-    except ListenerTimeout:
+    cmessage = await wait_for_message(c, cq.message.chat.id, filters.text, timeout=60)
+    if cmessage is None:
         return
 
     name = cmessage.text
@@ -175,28 +189,21 @@ async def settings_themes_new(c: Client, cq: CallbackQuery, t):
         await c.send_message(cq.message.chat.id, t("send_sticker"))
         await c.send_sticker(cq.message.chat.id, ncards["STICKERS"][card])
 
-        cmessage = None
-        # Wait for the user to send a message with the new emoji
-        try:
-            while cmessage is None:
-                cmessage = await cq.message.chat.listen(filters.sticker)
-                ncards["STICKERS"][card] = cmessage.sticker.file_id
-        except ListenerTimeout:
+        cmessage = await wait_for_message(c, cq.message.chat.id, filters.sticker, timeout=60)
+        if cmessage is None:
             return
+        ncards["STICKERS"][card] = cmessage.sticker.file_id
+
     for card in ncards["STICKERS_GREY"]:
         await c.send_message(cq.message.chat.id, t("send_sticker"))
         await c.send_sticker(cq.message.chat.id, ncards["STICKERS_GREY"][card])
 
-        cmessage = None
-        # Wait for the user to send a message with the new emoji
-        try:
-            while cmessage is None:
-                cmessage = await cq.message.chat.listen(filters.sticker)
-                ncards["STICKERS_GREY"][card] = cmessage.sticker.file_id
-        except ListenerTimeout:
+        cmessage = await wait_for_message(c, cq.message.chat.id, filters.sticker, timeout=60)
+        if cmessage is None:
             return
+        ncards["STICKERS_GREY"][card] = cmessage.sticker.file_id
 
-    with Path(f"cards/{name}.json").open(mode="w", encoding="locale") as f:
+    with Path(f"cards/{name}.json").open(mode="w", encoding="utf-8") as f:
         dump(ncards, f)
 
     await c.send_message(
@@ -233,36 +240,24 @@ async def settings_themes_add(c: Client, cq: CallbackQuery, t):
     theme = cq.data.split(" ")[1]
     await cq.edit_message_text(t("send_card_code"))
 
-    cmessage = None
-
-    try:
-        while cmessage is None:
-            cmessage = await cq.message.chat.listen(filters.text)
-    except ListenerTimeout:
+    cmessage = await wait_for_message(c, cq.message.chat.id, filters.text, timeout=60)
+    if cmessage is None:
         return
 
     code = cmessage.text
 
     await c.send_message(cq.message.chat.id, t("send_colored_card").format(code=code))
 
-    cmessage = None
-
-    try:
-        while cmessage is None:
-            cmessage = await cq.message.chat.listen(filters.sticker)
-    except ListenerTimeout:
+    cmessage = await wait_for_message(c, cq.message.chat.id, filters.sticker, timeout=60)
+    if cmessage is None:
         return
 
     stickerc = cmessage.sticker.file_id
 
     await c.send_message(cq.message.chat.id, t("send_grey_card").format(code=code))
 
-    cmessage = None
-
-    try:
-        while cmessage is None:
-            cmessage = await cq.message.chat.listen(filters.sticker)
-    except ListenerTimeout:
+    cmessage = await wait_for_message(c, cq.message.chat.id, filters.sticker, timeout=60)
+    if cmessage is None:
         return
 
     stickerg = cmessage.sticker.file_id
@@ -270,7 +265,7 @@ async def settings_themes_add(c: Client, cq: CallbackQuery, t):
     cards[theme]["STICKERS"][code] = stickerc
     cards[theme]["STICKERS_GREY"][code] = stickerg
 
-    with Path(f"cards/{theme}.json").open(mode="w", encoding="locale") as f:
+    with Path(f"cards/{theme}.json").open(mode="w", encoding="utf-8") as f:
         dump(cards[theme], f)
 
     await c.send_message(
@@ -349,17 +344,13 @@ async def settings_themes_update(c: Client, cq: CallbackQuery, t):
         cardtm = "STICKERS_GREY" if sp[1] == "Dark" else "STICKERS"
         await c.send_sticker(cq.message.chat.id, cards[theme][cardtm][cardid])
 
-        cmessage = None
-
-        try:
-            while cmessage is None:
-                cmessage = await cq.message.chat.listen(filters.sticker)
-        except ListenerTimeout:
+        cmessage = await wait_for_message(c, cq.message.chat.id, filters.sticker, timeout=60)
+        if cmessage is None:
             return
 
         cards[theme][cardtm][cardid] = cmessage.sticker.file_id
 
-        with Path(f"cards/{theme}.json").open(mode="w", encoding="locale") as f:
+        with Path(f"cards/{theme}.json").open(mode="w", encoding="utf-8") as f:
             dump(cards[theme], f)
 
         await c.send_message(
@@ -387,20 +378,17 @@ async def settings_themes_check(c: Client, cq: CallbackQuery):
             except MediaEmpty:
                 await c.send_message(
                     cq.message.chat.id,
-                    f"Carta {card} não encontrada, mande a carta para substitui-lá",
+                    f"Carta {card} nÃ£o encontrada, mande a carta para substitui-lÃ¡",
                 )
 
-                while True:
-                    try:
-                        cmessage = await cq.message.chat.listen(filters.sticker)
-                        break
-                    except ListenerTimeout:
-                        return
+                cmessage = await wait_for_message(c, cq.message.chat.id, filters.sticker, timeout=120)
+                if cmessage is None:
+                    return
 
                 cards[theme][card_type][card] = cmessage.sticker.file_id
                 await c.send_message(cq.message.chat.id, f"Carta {card} atualizada com sucesso!")
 
-    with Path(f"cards/{theme}.json").open(mode="w", encoding="locale") as f:
+    with Path(f"cards/{theme}.json").open(mode="w", encoding="utf-8") as f:
         dump(cards[theme], f)
 
     await c.send_message(cq.message.chat.id, "Cartas verificadas com sucesso!")

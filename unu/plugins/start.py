@@ -1,9 +1,16 @@
-from hydrogram import Client, filters
-from hydrogram.helpers import ikb
-from hydrogram.types import CallbackQuery, Message
+from pyrogram import Client, filters
+from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from unu.db import User
 from unu.locales import use_user_lang
+
+
+def ikb(rows):
+    """Build InlineKeyboardMarkup from list of rows of (text, callback_data) tuples."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(text, callback_data=data) for text, data in row]
+        for row in rows
+    ])
 
 
 @Client.on_message(filters.command("start") & filters.private)

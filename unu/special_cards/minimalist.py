@@ -1,5 +1,5 @@
-from hydrogram import Client
-from hydrogram.types import ChosenInlineResult, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram import Client
+from pyrogram.types import ChosenInlineResult, InlineKeyboardButton, InlineKeyboardMarkup
 
 from unu.game import Game
 

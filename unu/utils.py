@@ -1,5 +1,5 @@
-from hydrogram import Client, filters
-from hydrogram.types import Message
+from pyrogram import Client, filters
+from pyrogram.types import Message
 
 from config import games, player_game, sudoers
 from unu.db import GameModel, GamePlayer, User

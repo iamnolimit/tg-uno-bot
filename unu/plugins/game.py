@@ -1,10 +1,11 @@
+import asyncio
 import importlib
 import re
 
-from hydrogram import Client, filters
-from hydrogram.enums import ChatType
-from hydrogram.errors import ListenerTimeout
-from hydrogram.types import (
+from pyrogram import Client, filters
+from pyrogram.enums import ChatType
+from pyrogram.handlers import MessageHandler
+from pyrogram.types import (
     CallbackQuery,
     ChosenInlineResult,
     InlineKeyboardButton,
@@ -16,7 +17,7 @@ from hydrogram.types import (
     Message,
 )
 
-from config import games, minimum_players, player_game
+from config import games, minimum_players, notify_dict, player_game
 from unu.card import COLORS, cards
 from unu.db import Chat, User
 from unu.game import Game
@@ -34,8 +35,7 @@ async def new_game(c: Client, m: Message, ut, ct):
             ut("game_existis")
             if m.chat.id in games
             else ut("only_group")
-            if m.chat.type == ChatType.PRIVATE
-            else ut("already_in_game") + str(player_game.get(m.from_user.id).chat.title)
+            if m.chat.type == ChatType.PRIVATE            else ut("already_in_game") + str(player_game.get(m.from_user.id).chat.title)
         )
 
     game = Game(m.chat, (await Chat.get(id=m.chat.id)).theme)
@@ -44,6 +44,19 @@ async def new_game(c: Client, m: Message, ut, ct):
     game.players[m.from_user.id] = m.from_user
     games[m.chat.id] = game
     player_game[m.from_user.id] = game
+
+    # Notify users who used /notify_me
+    if m.chat.id in notify_dict:
+        for uid in notify_dict[m.chat.id]:
+            try:
+                await c.send_message(
+                    uid,
+                    ct("new_game_notify").format(title=m.chat.title),
+                )
+            except Exception:
+                pass
+        del notify_dict[m.chat.id]
+
     keyb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(ct("join"), callback_data="join_game"),
@@ -276,6 +289,154 @@ async def kill_game(c: Client, m: Message, ut, ct):
     if (await Chat.get(id=m.chat.id)).auto_pin:
         await game.message.unpin()
     return await m.reply_text(ct("game_over"))
+
+
+@Client.on_message(filters.command("kick"))
+@use_lang()
+async def kick_player(c: Client, m: Message, ut, ct):
+    """Kick a player by replying to their message."""
+    game: Game = games.get(m.chat.id)
+    if not game:
+        return await m.reply_text(ut("no_game"))
+
+    if not game.is_started:
+        return await m.reply_text(ct("game_not_started"))
+
+    if not m.reply_to_message:
+        return await m.reply_text(ct("kick_reply"))
+
+    kicked_user = m.reply_to_message.from_user
+    if not kicked_user or kicked_user.id not in game.players:
+        return await m.reply_text(ct("player_not_in_game"))
+
+    inline_keyb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(ct("play"), switch_inline_query_current_chat="")]
+    ])
+
+    # If it's the kicked player's turn, advance first
+    if game.next_player and game.next_player.id == kicked_user.id:
+        game.next()
+
+    del game.players[kicked_user.id]
+    player_game.pop(kicked_user.id, None)
+
+    await m.reply_text(
+        ct("player_kicked").format(
+            kicked=kicked_user.mention, kicker=m.from_user.mention
+        )
+    )
+
+    if len(game.players) < minimum_players:
+        for pid in list(game.players.keys()):
+            player_game.pop(pid, None)
+        games.pop(m.chat.id, None)
+        game.stop()
+        await game.message.edit_text(ct("game_over"))
+        if (await Chat.get(id=m.chat.id)).auto_pin:
+            await game.message.unpin()
+        return await m.reply_text(ct("game_over"))
+
+    return await c.send_message(
+        m.chat.id,
+        ct("next").format(name=game.next_player.mention),
+        reply_markup=inline_keyb,
+    )
+
+
+@Client.on_message(filters.command("skip"))
+@use_lang()
+async def skip_player(c: Client, m: Message, ut, ct):
+    """Skip the current player if they're taking too long."""
+    game: Game = games.get(m.chat.id)
+    if not game:
+        return await m.reply_text(ut("no_game"))
+
+    if not game.is_started:
+        return await m.reply_text(ct("game_not_started"))
+
+    skipped = game.next_player
+    # Draw a penalty card for the skipped player
+    drawn = game.deck.draw(1)
+    if drawn:
+        skipped.cards.extend(drawn)
+
+    game.next()
+
+    inline_keyb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(ct("play"), switch_inline_query_current_chat="")]
+    ])
+    await c.send_message(
+        m.chat.id,
+        ct("player_skipped").format(name=skipped.mention),
+    )
+    return await c.send_message(
+        m.chat.id,
+        ct("next").format(name=game.next_player.mention),
+        reply_markup=inline_keyb,
+    )
+
+
+@Client.on_message(filters.command("notify_me"))
+@use_lang()
+async def notify_me(c: Client, m: Message, ut, ct):
+    """Get notified when a new game starts in this group."""
+    if m.chat.type == ChatType.PRIVATE:
+        return await m.reply_text(ut("notify_private"))
+
+    chat_id = m.chat.id
+    user_id = m.from_user.id
+
+    if chat_id not in notify_dict:
+        notify_dict[chat_id] = set()
+
+    if user_id in notify_dict[chat_id]:
+        notify_dict[chat_id].discard(user_id)
+        return await m.reply_text(ut("notify_off"))
+
+    notify_dict[chat_id].add(user_id)
+    return await m.reply_text(ut("notify_on"))
+
+
+@Client.on_message(filters.left_chat_member)
+async def status_update(c: Client, m: Message):
+    """Remove player from game if they leave the group."""
+    if not m.left_chat_member:
+        return
+    user = m.left_chat_member
+    game: Game = games.get(m.chat.id)
+    if not game or user.id not in game.players:
+        return
+
+    inline_keyb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Play", switch_inline_query_current_chat="")]
+    ])
+
+    if game.next_player and game.next_player.id == user.id:
+        game.next()
+
+    del game.players[user.id]
+    player_game.pop(user.id, None)
+
+    await c.send_message(
+        m.chat.id, f"Removing {user.mention} from the game"
+    )
+
+    if len(game.players) < minimum_players:
+        for pid in list(game.players.keys()):
+            player_game.pop(pid, None)
+        games.pop(m.chat.id, None)
+        game.stop()
+        await game.message.edit_text("Game ended!")
+        if (await Chat.get(id=m.chat.id)).auto_pin:
+            await game.message.unpin()
+        return
+
+    if game.is_started:
+        await c.send_message(
+            m.chat.id,
+            f"Next: {game.next_player.mention}",
+            reply_markup=inline_keyb,
+        )
 
 
 @Client.on_message(filters.command("start") & ~filters.private)
@@ -765,7 +926,7 @@ async def choosen(c: Client, ir: ChosenInlineResult, ut, ct):
     return None
 
 
-async def verify_cards(game: Game, c: Client, ir, user: User, ut, ct):
+async def verify_cards(game: Game, c: Client, ir, user, ut, ct):
     inline_keyb = InlineKeyboardMarkup([
         [InlineKeyboardButton(ct("play"), switch_inline_query_current_chat="")]
     ])
@@ -777,16 +938,35 @@ async def verify_cards(game: Game, c: Client, ir, user: User, ut, ct):
                 game.chat.id,
                 ut("say_uno").format(name=user.mention),
             )
+            # Wait for "uno" message using asyncio.Event instead of chat.listen
             uno = False
-            while True:
-                try:
-                    cmessage = await game.chat.listen(filters.text, timeout=5)
-                    if (cmessage and cmessage.text) and "uno" in cmessage.text.lower():
-                        uno = True
-                        break
-                except ListenerTimeout:
-                    break
-            if uno and cmessage.from_user.id == user.id:
+            uno_event = asyncio.Event()
+            uno_result = {"said": False, "user_id": None}
+
+            async def _uno_listener(_client, _message):
+                if (
+                    _message.chat.id == game.chat.id
+                    and _message.text
+                    and "uno" in _message.text.lower()
+                ):
+                    uno_result["said"] = True
+                    uno_result["user_id"] = _message.from_user.id if _message.from_user else None
+                    uno_event.set()
+
+            handler = c.add_handler(
+                MessageHandler(
+                    _uno_listener,
+                    filters.chat(game.chat.id) & filters.text,
+                ),
+                group=99,
+            )
+            try:
+                await asyncio.wait_for(uno_event.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass
+            c.remove_handler(*handler)
+
+            if uno_result["said"] and uno_result["user_id"] == user.id:
                 await c.send_message(game.chat.id, ct("said_uno").format(name=user.mention))
             else:
                 game.players[user.id].cards.extend(game.deck.draw(2))

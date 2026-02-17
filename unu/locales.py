@@ -3,9 +3,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
-from hydrogram import Client
-from hydrogram.enums import ChatType
-from hydrogram.types import CallbackQuery, Message
+from pyrogram import Client
+from pyrogram.enums import ChatType
+from pyrogram.types import CallbackQuery, Message
 
 from config import player_game
 from unu.db import Chat, User

@@ -111,3 +111,15 @@ choose_card: Choose a card to update
 skip_all: "{name} skipped all players!"
 discarted_all: "{name} discarded {count} cards!"
 dev_mode: \nDeveloper mode
+too_many_cards: "{name} has too many cards and has been eliminated!"
+game_not_started: The game has not started yet!
+kick_reply: Please reply to the person you want to kick and type /kick again.
+player_not_in_game: That player is not in the current game.
+player_kicked: "{kicked} was kicked by {kicker}"
+player_skipped: "{name} was skipped!"
+notify_private: Send this command in a group to be notified when a new game starts there.
+notify_on: "You will be notified when a new game starts in this group! Send /notify_me again to turn off."
+notify_off: You will no longer be notified about new games in this group.
+new_game_notify: "A new game has been started in {title}!"
+close_lobby: Close lobby
+minimum_players: "At least {0} players must join before the game can start!"

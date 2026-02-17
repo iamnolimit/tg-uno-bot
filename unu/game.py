@@ -1,11 +1,11 @@
 import asyncio
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from asyncio.tasks import Task
 
-from hydrogram.types import Chat, Message, User
+from pyrogram.types import Chat, Message, User
 
 from config import bot, games, timeout
 from unu.db import GameModel
@@ -16,20 +16,20 @@ class Game:
     def __init__(self, chat: Chat, theme) -> None:
         self.theme = theme
         self.chat: Chat = chat
-        self.last_card: tuple = None
-        self.last_card_2: dict = None
-        self.next_player: User = None
+        self.last_card: Optional[tuple] = None
+        self.last_card_2: Optional[dict] = None
+        self.next_player: Optional[User] = None
         self.deck = Deck(theme)
         self.players: dict[int, User] = {}
         self.is_started: bool = False
         self.draw: int = 0
         self.drawed: bool = False
-        self.chosen: str = None
+        self.chosen: Optional[str] = None
         self.closed: bool = False
         self.winner: bool = True
-        self.timer_task: Task = None
+        self.timer_task: Optional[Task] = None
         self.timer_duration: int = timeout
-        self.message: Message = None
+        self.message: Optional[Message] = None
         self.is_dev = False
         self.bluff = False
 
@@ -81,7 +81,7 @@ class Game:
             last_card=self.last_card,
             last_card_2=self.last_card_2,
             next_player_id=self.next_player.id if self.next_player else None,
-            deck=json.dumps(self.deck.cards),
+            deck=json.dumps({"cards": self.deck.cards, "graveyard": self.deck._graveyard}),
             players=players_dict,
             is_started=self.is_started,
             draw=self.draw,
@@ -107,7 +107,13 @@ class Game:
         self.chat = await bot.get_chat(game.chat_id)
         self.last_card = game.last_card
         self.last_card_2 = game.last_card_2
-        self.deck.cards = game.deck
+        deck_data = game.deck if isinstance(game.deck, dict) else json.loads(game.deck) if isinstance(game.deck, str) else game.deck
+        if isinstance(deck_data, dict) and "cards" in deck_data:
+            self.deck.cards = deck_data["cards"]
+            self.deck._graveyard = deck_data.get("graveyard", [])
+        else:
+            # Legacy format: plain list
+            self.deck.cards = deck_data if isinstance(deck_data, list) else []
         self.players = {}
         self.is_started = game.is_started
         self.draw = game.draw

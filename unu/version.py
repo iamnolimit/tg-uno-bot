@@ -1,4 +1,4 @@
-version = "1.0.0-beta"
+version = "2.0.0"
 
 ascii_art = f"""    ___       ___       ___
    /\\__\\     /\\__\\     /\\__\\
@@ -8,6 +8,6 @@ ascii_art = f"""    ___       ___       ___
   \\::/  /    |:/  /   \\::/  /  _ _ |_  _ |_
    \\/__/     \\/__/     \\/__/  | (_)|_)(_)|_
 
- Version: {version} - Powered by Hydrogram
+ Version: {version} - Powered by Pyrogram + TiDB + Redis
 
 """
