@@ -1,0 +1,7 @@
+pyrogram
+tgcrypto
+tortoise-orm[aiomysql]
+aiomysql
+redis[hiredis]
+cryptography
+PyYAML
