@@ -1,3 +1,4 @@
+import logging
 from functools import partial, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from unu.db import Chat, User
 if TYPE_CHECKING:
     from unu.game import Game
 
+logger = logging.getLogger(__name__)
 
 default_language = "en-US"
 
@@ -33,19 +35,23 @@ def use_lang():
     def decorator(func):
         @wraps(func)
         async def wrapper(client: Client, message: CallbackQuery | Message):
-            ulang = (await User.get_or_create(id=message.from_user.id))[0].lang
-            if not isinstance(message, Message):
-                if message.from_user.id not in player_game:
-                    clang = ulang
+            try:
+                ulang = (await User.get_or_create(id=message.from_user.id))[0].lang
+                if not isinstance(message, Message):
+                    if message.from_user.id not in player_game:
+                        clang = ulang
+                    else:
+                        game: Game = player_game[message.from_user.id]
+                        chatid = game.chat.id
+                        clang = (await Chat.get_or_create(id=chatid))[0].lang
                 else:
-                    game: Game = player_game[message.from_user.id]
-                    chatid = game.chat.id
-                    clang = (await Chat.get_or_create(id=chatid))[0].lang
-            else:
-                clang = (await Chat.get_or_create(id=message.chat.id))[0].lang
-            ulfunc = partial(get_locale_string, ulang)
-            clfunc = partial(get_locale_string, clang)
-            return await func(client, message, ulfunc, clfunc)
+                    clang = (await Chat.get_or_create(id=message.chat.id))[0].lang
+                ulfunc = partial(get_locale_string, ulang)
+                clfunc = partial(get_locale_string, clang)
+                return await func(client, message, ulfunc, clfunc)
+            except Exception as e:
+                logger.exception("Error in use_lang wrapper: %s", e)
+                raise
 
         return wrapper
 
@@ -56,13 +62,17 @@ def use_chat_lang():
     def decorator(func):
         @wraps(func)
         async def wrapper(client: Client, message: CallbackQuery | Message):
-            mmessage = message.message if not isinstance(message, Message) else message
-            if mmessage.chat.type == ChatType.PRIVATE:
-                clang = (await User.get_or_create(id=mmessage.chat.id))[0].lang
-            else:
-                clang = (await Chat.get_or_create(id=mmessage.chat.id))[0].lang
-            clfunc = partial(get_locale_string, clang)
-            return await func(client, message, clfunc)
+            try:
+                mmessage = message.message if not isinstance(message, Message) else message
+                if mmessage.chat.type == ChatType.PRIVATE:
+                    clang = (await User.get_or_create(id=mmessage.chat.id))[0].lang
+                else:
+                    clang = (await Chat.get_or_create(id=mmessage.chat.id))[0].lang
+                clfunc = partial(get_locale_string, clang)
+                return await func(client, message, clfunc)
+            except Exception as e:
+                logger.exception("Error in use_chat_lang wrapper: %s", e)
+                raise
 
         return wrapper
 
@@ -73,9 +83,13 @@ def use_user_lang():
     def decorator(func):
         @wraps(func)
         async def wrapper(client: Client, message: CallbackQuery | Message):
-            ulang = (await User.get_or_create(id=message.from_user.id))[0].lang
-            ulfunc = partial(get_locale_string, ulang)
-            return await func(client, message, ulfunc)
+            try:
+                ulang = (await User.get_or_create(id=message.from_user.id))[0].lang
+                ulfunc = partial(get_locale_string, ulang)
+                return await func(client, message, ulfunc)
+            except Exception as e:
+                logger.exception("Error in use_user_lang wrapper: %s", e)
+                raise
 
         return wrapper
 
